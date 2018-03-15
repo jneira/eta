@@ -159,47 +159,52 @@ type instance Inherits OverlappingFileLockException = '[IllegalStateException]
 
 class (e <: Throwable) => ToIOError e where
   toIOError :: e -> Maybe SysIOErr.IOError
-  toIOError e = defaultToIOError e
+  toIOError e = Nothing
 
 instance (e <: Throwable) => ToIOError e
 
-defaultToIOError :: (ioex <: Throwable)
-          => ioex -> Maybe SysIOErr.IOError
-defaultToIOError jioex =  fmap ioErr type'
-  where ioErr type' =  SysIOErr.ioeSetErrorString
-                       (SysIOErr.mkIOError type' "" Nothing Nothing) msg
+mkIOError :: (e <: Throwable) => SysIOErr.IOErrorType
+          -> e -> SysIOErr.IOError
+mkIOError t e = SysIOErr.ioeSetErrorString
+                (SysIOErr.mkIOError t "" Nothing Nothing) msg
+  where msg = unsafePerformJavaWith e getMessage
 
-        type' | isDoesNotExistError  = Just SysIOErr.doesNotExistErrorType
-              | isAlreadyInUseError  = Just SysIOErr.alreadyInUseErrorType
-              | isAlreadyExistsError = Just SysIOErr.alreadyExistsErrorType
-              | isPermissionError    = Just SysIOErr.permissionErrorType
-              | isEofError           = Just SysIOErr.eofErrorType
-              | isFullError          = Just SysIOErr.fullErrorType
-              | otherwise            = Nothing
+instance ToIOError IOException where
+  toIOError e = Just $ mkIOError type' e
+    where type' | isDoesNotExistError  = SysIOErr.doesNotExistErrorType
+                | isAlreadyInUseError  = SysIOErr.alreadyInUseErrorType
+                | isAlreadyExistsError = SysIOErr.alreadyExistsErrorType
+                | isPermissionError    = SysIOErr.permissionErrorType
+                | isFullError          = SysIOErr.fullErrorType
+                | otherwise            = SysIOErr.userErrorType
+          msg = unsafePerformJavaWith e getMessage
 
-        msg = unsafePerformJavaWith jioex getMessage
-          
-        isJIOException = jioex `instanceOf` (getClass (Proxy :: Proxy IOException)) 
-        isAlreadyInUseError =
-          (isJIOException && ("The process cannot access the file " ++
-                              "because another process has locked a portion of the file" )
-                              `isSubsequenceOf` msg) ||
-          jioex `instanceOf` (getClass (Proxy :: Proxy OverlappingFileLockException))
-        isDoesNotExistError =
-          jioex `instanceOf` (getClass (Proxy :: Proxy FileNotFoundException)) ||
-          jioex `instanceOf` (getClass (Proxy :: Proxy NoSuchFileException)) ||
-          ( isJIOException && msg == "The system cannot find the path specified" )
-        isAlreadyExistsError =
-          ( isJIOException && msg == "File already exists" ) ||
-          jioex `instanceOf` (getClass (Proxy :: Proxy FileAlreadyExistsException))
-        isPermissionError = isJIOException && msg == "Permission denied"  
-        isEofError = jioex `instanceOf` (getClass (Proxy :: Proxy EOFException))
-        isFullError = isJIOException &&
-          msg `elem` ["There is not enough space on the disk", -- windows
-                      "Not enough space",                      -- nix
-                      "Not space left on device"]              -- GCJ
--- End java.io.IOException
+          isDoesNotExistError =
+            msg == "The system cannot find the path specified"
+          isAlreadyInUseError = isSubsequenceOf msg
+            ("The process cannot access the file " ++
+             "because another process has locked a portion of the file" )
+          isAlreadyExistsError = msg == "File already exists"
+          isPermissionError = msg == "Permission denied"  
+          isFullError = msg `elem` ["There is not enough space on the disk", -- windows
+                                    "Not enough space",                      -- nix
+                                    "Not space left on device"]              -- GCJ
 
+instance ToIOError OverlappingFileLockException where
+  toIOError = Just . mkIOError SysIOErr.alreadyInUseErrorType
+
+instance ToIOError FileNotFoundException where
+  toIOError = Just . mkIOError SysIOErr.doesNotExistErrorType
+
+instance ToIOError NoSuchFileException where
+  toIOError = Just . mkIOError SysIOErr.doesNotExistErrorType
+
+instance ToIOError FileAlreadyExistsException where
+  toIOError = Just . mkIOError SysIOErr.alreadyExistsErrorType
+
+instance ToIOError EOFException where
+  toIOError = Just . mkIOError SysIOErr.eofErrorType
+  
 toSomeException :: (a <: Throwable) => a -> SomeException
 toSomeException ex = SomeException (JException (unsafeCoerce# (unobj ex)))
 
