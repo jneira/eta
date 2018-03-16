@@ -170,7 +170,7 @@ mkIOError t e = SysIOErr.ioeSetErrorString
   where msg = unsafePerformJavaWith e getMessage
 
 instance ToIOError IOException where
-  toIOError e = Just $ mkIOError type' e
+  toIOError = Just . mkIOError type'
     where type' | isDoesNotExistError  = SysIOErr.doesNotExistErrorType
                 | isAlreadyInUseError  = SysIOErr.alreadyInUseErrorType
                 | isAlreadyExistsError = SysIOErr.alreadyExistsErrorType
@@ -186,9 +186,10 @@ instance ToIOError IOException where
              "because another process has locked a portion of the file" )
           isAlreadyExistsError = msg == "File already exists"
           isPermissionError = msg == "Permission denied"  
-          isFullError = msg `elem` ["There is not enough space on the disk", -- windows
-                                    "Not enough space",                      -- nix
-                                    "Not space left on device"]              -- GCJ
+          isFullError = msg `elem`
+            ["There is not enough space on the disk", -- windows
+             "Not enough space",                      -- nix
+             "Not space left on device"]              -- GCJ
 
 instance ToIOError OverlappingFileLockException where
   toIOError = Just . mkIOError SysIOErr.alreadyInUseErrorType
